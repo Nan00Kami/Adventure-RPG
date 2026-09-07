@@ -5,11 +5,7 @@ import { REGIONAL_ENEMIES, BOSS_ENCOUNTERS } from './data/Enemies.js';
 
 const canvas = document.getElementById("screen");
 const ctx = canvas.getContext("2d");
-
 const TILE_SIZE = 32;
-// Expanded world scale: 120 x 80 tiles
-const WORLD_COLS = 120;
-const WORLD_ROWS = 80;
 
 class WeaponInstance {
   constructor(proto) {
@@ -25,22 +21,23 @@ class WeaponInstance {
   }
 }
 
-// Starter loadout: 1 weapon, 0 cores
+// Starter loadout
 const starter = ALL_WEAPONS["Folded Sword #1"] || Object.values(ALL_WEAPONS)[0];
 const gameState = {
-  playerX: 18,
-  playerY: 18,
-  playerBaseHp: 50,
-  playerBaseAtk: 12,
+  playerX: 5,
+  playerY: 6,
+  playerBaseHp: 60,
+  playerBaseAtk: 14,
   armorResist: 0.15,
   keenCores: 0,
-  hasBoat: false,
+  currentScene: "forest_dungeon", // "forest_dungeon" | "snow_mountains"
   pocket: [new WeaponInstance(starter)],
   activeIdx: 0,
   currentEnemy: null,
   inCombat: false,
+  turnResolving: false, // Prevents input spamming during battle
   atkBuff: 1.0,
-  unlockedLandmarks: new Set(["Grasslands Village"])
+  unlockedLandmarks: new Set(["Sunken Temple Shrine"])
 };
 
 function getMasterHp() {
@@ -52,130 +49,122 @@ function getMasterAtk() {
 
 let playerBattleHp = getMasterHp();
 
-const LANDMARKS = [
-  { id: "Grasslands Village", x: 18, y: 18, region: "grasslands", desc: "Settlement & Master Crucible" },
-  { id: "Azure Beach Port", x: 55, y: 18, region: "beach", desc: "Harbor & Vessel Broker" },
-  { id: "Ascetic Dojo", x: 18, y: 55, region: "hillside", desc: "Monastic combat grounds" },
-  { id: "Sunken Temple", x: 55, y: 55, region: "forest", desc: "Overgrown ancient ruins" },
-  { id: "Alpine Laboratory", x: 98, y: 55, region: "mountains", desc: "Frost-bound research facility" },
-  { id: "Abyssal Prison", x: 98, y: 18, region: "ocean", desc: "High-security island fortress" }
-];
-
-// Region boundary locator across 120 x 80 map
-function getZoneAt(x, y) {
-  if (x < 40 && y < 40) return "grasslands";
-  if (x >= 40 && x < 80 && y < 40) return "beach";
-  if (x < 40 && y >= 40) return "hillside";
-  if (x >= 40 && x < 80 && y >= 40) return "forest";
-  if (x >= 80 && y >= 40) return "mountains";
-  return "ocean";
-}
-
-// Deterministic Hunting Grounds: Specific tall-grass patches per region
-// Walking ANYWHERE outside these zones is completely safe.
-function isDangerPatch(x, y) {
-  // Do not spawn danger patches on top of landmarks or paths
-  for (const lm of LANDMARKS) {
-    if (Math.abs(x - lm.x) <= 4 && Math.abs(y - lm.y) <= 4) return false;
+// SCENE MAPS: Organic Winding Corridors Shaped by Dense Canopies (Tile 1)
+// 0: Path, 1: Tree Wall, 2: Ruins, 3: Hunting Grass, 5: Cobble, 6: Anvil, 7: Boss, 8: Gate
+const SCENES = {
+  forest_dungeon: {
+    biome: "forest",
+    cols: 32,
+    rows: 24,
+    templePos: { x: 13, y: 3 },
+    map: [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,0,0,0,0,0,0,0,0,5,5,5,5,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,0,0,1,1,1,0,0,0,0,5,6,5,5,0,0,1,1,1,0,0,1,1,1,1,1,1,1,1],
+      [1,1,1,0,0,1,1,1,1,1,0,0,0,5,5,5,5,0,1,1,1,1,1,0,0,1,1,1,1,1,1,1],
+      [1,1,1,0,1,1,1,1,1,1,1,0,0,0,0,0,0,1,1,1,1,1,1,1,0,1,1,1,1,1,1,1],
+      [1,1,0,0,1,1,3,3,3,1,1,1,0,0,0,0,1,1,1,3,3,3,1,1,0,0,1,1,1,1,1,1],
+      [1,1,0,0,1,3,3,3,3,3,1,1,0,0,0,0,1,1,3,3,3,3,3,1,0,0,1,1,1,1,1,1],
+      [1,1,0,0,0,3,3,3,3,3,0,0,0,0,0,0,0,0,3,3,3,3,3,0,0,0,1,1,1,1,1,1],
+      [1,1,1,0,0,1,3,3,3,1,0,0,1,1,1,1,0,0,1,3,3,3,1,0,0,1,1,1,1,1,1,1],
+      [1,1,1,1,0,0,1,1,1,0,0,1,1,1,1,1,1,0,0,1,1,1,0,0,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,0,0,0,0,0,1,1,1,1,1,1,1,1,0,0,0,0,0,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,0,0,1,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,0,0,0,0,0,7,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,8,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+    ]
+  },
+  snow_mountains: {
+    biome: "mountains",
+    cols: 30,
+    rows: 20,
+    templePos: null,
+    map: [
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,8,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,0,0,0,1,1,1,1,0,0,0,0,1,1,1,0,0,0,1,1,1,1,1,1,1,1],
+      [1,1,1,1,0,0,1,1,1,1,1,1,1,0,0,1,1,1,1,1,0,0,1,1,1,1,1,1,1,1],
+      [1,1,1,0,0,1,1,3,3,3,1,1,0,0,0,0,1,1,3,3,1,0,0,1,1,1,1,1,1,1],
+      [1,1,0,0,1,1,3,3,3,3,3,0,0,5,5,0,0,3,3,3,1,1,0,0,1,1,1,1,1,1],
+      [1,1,0,0,1,1,3,3,3,3,3,0,5,5,6,5,0,3,3,3,1,1,0,0,1,1,1,1,1,1],
+      [1,1,0,0,0,0,0,3,3,3,0,0,5,5,5,5,0,0,3,3,0,0,0,0,1,1,1,1,1,1],
+      [1,1,1,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,1,1,1,1,1,1],
+      [1,1,1,1,0,0,1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,1,0,0,1,1,1,1,1,1],
+      [1,1,1,1,1,0,0,0,1,1,1,1,0,0,0,0,1,1,1,1,0,0,0,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,0,0,0,0,1,1,1,0,0,1,1,1,0,0,0,0,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,0,0,0,0,0,0,0,7,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1],
+      [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1]
+    ]
   }
+};
 
-  // Grasslands Hunting Fields (East of village)
-  if (x >= 24 && x <= 35 && y >= 10 && y <= 28) return true;
-  // Beach Coastal Reefs
-  if (x >= 62 && x <= 75 && y >= 10 && y <= 25) return true;
-  // Hillside Crags
-  if (x >= 10 && x <= 32 && y >= 46 && y <= 68) return true;
-  // Deep Forest Thick Woods
-  if (x >= 46 && x <= 72 && y >= 44 && y <= 70) return true;
-  // Mountain Permafrost Wilds
-  if (x >= 86 && x <= 112 && y >= 44 && y <= 72) return true;
-  // Open Ocean Whirlpools
-  if (x >= 86 && x <= 112 && y >= 8 && y <= 32) return true;
-
-  return false;
-}
-
-function checkLandmarkUnlocks() {
-  LANDMARKS.forEach(lm => {
-    if (Math.abs(gameState.playerX - lm.x) <= 2 && Math.abs(gameState.playerY - lm.y) <= 2) {
-      if (!gameState.unlockedLandmarks.has(lm.id)) {
-        gameState.unlockedLandmarks.add(lm.id);
-        alert(`Discovered Landmark: ${lm.id}! Unlocked for Fast Travel.`);
-      }
-    }
-  });
-}
+const LANDMARKS = [
+  { id: "Sunken Temple Shrine", scene: "forest_dungeon", x: 14, y: 7, desc: "Ancient overworld sanctum" },
+  { id: "Frost Peak Outpost", scene: "snow_mountains", x: 14, y: 7, desc: "High alpine research ridge" }
+];
 
 function updateHUD() {
   document.getElementById("hud-hp").innerText = `${playerBattleHp}/${getMasterHp()}`;
   document.getElementById("hud-atk").innerText = getMasterAtk();
   document.getElementById("hud-cores").innerText = gameState.keenCores;
-  document.getElementById("hud-zone").innerText = getZoneAt(gameState.playerX, gameState.playerY).toUpperCase();
+  document.getElementById("hud-zone").innerText = gameState.currentScene.toUpperCase().replace("_", " ");
 }
 
-// Render loop with clamped camera tracking (prevents black empty voids)
+// Clamped Camera View
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  const halfW = canvas.width / 2;
-  const halfH = canvas.height / 2;
-  const maxCamX = WORLD_COLS * TILE_SIZE - canvas.width;
-  const maxCamY = WORLD_ROWS * TILE_SIZE - canvas.height;
+  const scene = SCENES[gameState.currentScene];
+  const maxCamX = scene.cols * TILE_SIZE - canvas.width;
+  const maxCamY = scene.rows * TILE_SIZE - canvas.height;
 
-  // Clamped Camera
-  const camX = Math.max(0, Math.min(maxCamX, gameState.playerX * TILE_SIZE + TILE_SIZE / 2 - halfW));
-  const camY = Math.max(0, Math.min(maxCamY, gameState.playerY * TILE_SIZE + TILE_SIZE / 2 - halfH));
+  const camX = Math.max(0, Math.min(maxCamX, gameState.playerX * TILE_SIZE + TILE_SIZE / 2 - canvas.width / 2));
+  const camY = Math.max(0, Math.min(maxCamY, gameState.playerY * TILE_SIZE + TILE_SIZE / 2 - canvas.height / 2));
 
-  const startCol = Math.max(0, Math.floor(camX / TILE_SIZE));
-  const endCol = Math.min(WORLD_COLS, startCol + Math.ceil(canvas.width / TILE_SIZE) + 1);
-  const startRow = Math.max(0, Math.floor(camY / TILE_SIZE));
-  const endRow = Math.min(WORLD_ROWS, startRow + Math.ceil(canvas.height / TILE_SIZE) + 1);
-
-  // 1. Draw Map Tiles
-  for (let r = startRow; r < endRow; r++) {
-    for (let c = startCol; c < endCol; c++) {
-      const zone = getZoneAt(c, r);
-      const isDanger = isDangerPatch(c, r);
+  // Render Base Map
+  for (let r = 0; r < scene.rows; r++) {
+    for (let c = 0; c < scene.cols; c++) {
+      const tileId = scene.map[r][c];
       const scrX = c * TILE_SIZE - camX;
       const scrY = r * TILE_SIZE - camY;
-      EnvironmentRenderer.drawEnvironmentTile(ctx, zone, isDanger, scrX, scrY, TILE_SIZE);
+      if (scrX > -TILE_SIZE && scrX < canvas.width && scrY > -TILE_SIZE && scrY < canvas.height) {
+        EnvironmentRenderer.drawTile(ctx, tileId, scene.biome, scrX, scrY, TILE_SIZE);
+      }
     }
   }
 
-  // 2. Draw Landmark Plazas
-  LANDMARKS.forEach(lm => {
-    const scrX = lm.x * TILE_SIZE - camX;
-    const scrY = lm.y * TILE_SIZE - camY;
-    if (scrX > -TILE_SIZE && scrX < canvas.width && scrY > -TILE_SIZE && scrY < canvas.height) {
-      EnvironmentRenderer.drawEnvironmentTile(ctx, "town", false, scrX, scrY, TILE_SIZE);
-    }
-  });
+  // Render Multi-Tile Temple Structure if in forest
+  if (scene.templePos) {
+    const tScrX = scene.templePos.x * TILE_SIZE - camX;
+    const tScrY = scene.templePos.y * TILE_SIZE - camY;
+    EnvironmentRenderer.drawTempleStructure(ctx, tScrX, tScrY);
+  }
 
-  // 3. Draw World Interactables (Anvils & Merchants)
-  [[18, 19], [98, 56]].forEach(([bx, by]) => {
-    EnvironmentRenderer.drawObject(ctx, "anvil", bx * TILE_SIZE - camX, by * TILE_SIZE - camY, TILE_SIZE);
-  });
-  EnvironmentRenderer.drawObject(ctx, "boat_merchant", 58 * TILE_SIZE - camX, 18 * TILE_SIZE - camY, TILE_SIZE);
+  // Render Player Sprite
+  const pScrX = gameState.playerX * TILE_SIZE - camX;
+  const pScrY = gameState.playerY * TILE_SIZE - camY;
 
-  // 4. Draw Boss Arenas
-  const bossLocations = [[28, 20], [68, 20], [25, 60], [60, 60], [105, 60], [105, 20]];
-  bossLocations.forEach(([bx, by]) => {
-    EnvironmentRenderer.drawObject(ctx, "boss", bx * TILE_SIZE - camX, by * TILE_SIZE - camY, TILE_SIZE);
-  });
-
-  // 5. Draw Player Character
-  const playerScrX = gameState.playerX * TILE_SIZE - camX;
-  const playerScrY = gameState.playerY * TILE_SIZE - camY;
-
-  ctx.fillStyle = "#2e3440"; // Shadow
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
   ctx.beginPath();
-  ctx.arc(playerScrX + 16, playerScrY + 28, 8, 0, Math.PI * 2);
+  ctx.arc(pScrX + 16, pScrY + 28, 8, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = "#d08770"; // Head
-  ctx.fillRect(playerScrX + 11, playerScrY + 4, 10, 8);
-  ctx.fillStyle = "#5e81ac"; // Cloak
-  ctx.fillRect(playerScrX + 8, playerScrY + 12, 16, 14);
+  ctx.fillStyle = "#d08770";
+  ctx.fillRect(pScrX + 11, pScrY + 4, 10, 8);
+  ctx.fillStyle = "#5e81ac";
+  ctx.fillRect(pScrX + 8, pScrY + 12, 16, 14);
 }
 
 // Fast Travel UI (M)
@@ -186,28 +175,26 @@ function openWorldMap() {
   modal.classList.remove("hidden");
 
   LANDMARKS.forEach(lm => {
-    const isUnlocked = gameState.unlockedLandmarks.has(lm.id);
     const card = document.createElement("div");
-    card.className = `landmark-card ${isUnlocked ? 'unlocked' : 'locked'}`;
-    card.innerHTML = `<strong>${lm.id}</strong> [${lm.region.toUpperCase()}]<br><small>${isUnlocked ? lm.desc : "Undiscovered Location"}</small>`;
-
-    if (isUnlocked) {
-      card.onclick = () => {
-        gameState.playerX = lm.x;
-        gameState.playerY = lm.y;
-        modal.classList.add("hidden");
-        updateHUD();
-        render();
-      };
-    }
+    card.className = "landmark-card unlocked";
+    card.innerHTML = `<strong>${lm.id}</strong><br><small>${lm.desc}</small>`;
+    card.onclick = () => {
+      gameState.currentScene = lm.scene;
+      gameState.playerX = lm.x;
+      gameState.playerY = lm.y;
+      modal.classList.add("hidden");
+      updateHUD();
+      render();
+    };
     container.appendChild(card);
   });
 }
 document.getElementById("btn-close-map").onclick = () => document.getElementById("map-modal").classList.add("hidden");
 
-// Battle Trigger & Turn Loop
+// Battle Engine Gated with Input Lock
 function triggerBattle(enemyProfile) {
   gameState.inCombat = true;
+  gameState.turnResolving = false;
   gameState.atkBuff = 1.0;
   gameState.currentEnemy = { ...enemyProfile, maxHp: enemyProfile.hp };
 
@@ -236,13 +223,21 @@ function updateBattleScreen() {
   activeWp.moves.forEach(m => {
     const btn = document.createElement("button");
     btn.innerHTML = `<strong>${m.name}</strong><br><small>${m.cost}: ${m.currentStock}/${m.maxStock}</small>`;
-    btn.disabled = m.currentStock <= 0;
+    // Lock all buttons if turn is resolving or out of stock
+    btn.disabled = gameState.turnResolving || m.currentStock <= 0;
     btn.onclick = () => executeTurn(m);
     movesContainer.appendChild(btn);
   });
+
+  document.getElementById("btn-open-weapons").disabled = gameState.turnResolving;
+  document.getElementById("btn-flee").disabled = gameState.turnResolving;
 }
 
 function executeTurn(move) {
+  // Input Lock Check: Ignore spam clicks completely
+  if (gameState.turnResolving) return;
+  gameState.turnResolving = true; // Lock combat
+
   const wp = gameState.pocket[gameState.activeIdx];
   move.currentStock--;
   if (move.buff > 1.0) gameState.atkBuff = move.buff;
@@ -257,9 +252,9 @@ function executeTurn(move) {
   }
 
   let resist = 0;
-  if (["Sword", "Lance", "Gauntlet"].includes(wp.type)) resist = gameState.currentEnemy.physRes;
-  else if (wp.type === "Talisman") resist = gameState.currentEnemy.spiRes;
-  else if (wp.type === "Staff") resist = gameState.currentEnemy.magRes;
+  if (["Sword", "Lance", "Gauntlet"].includes(wp.type)) resist = gameState.currentEnemy.physRes || 0;
+  else if (wp.type === "Talisman") resist = gameState.currentEnemy.spiRes || 0;
+  else if (wp.type === "Staff") resist = gameState.currentEnemy.magRes || 0;
 
   const isCrit = Math.random() < wp.critChance;
   const critMult = isCrit ? 2.0 : 1.0;
@@ -271,24 +266,28 @@ function executeTurn(move) {
   document.getElementById("combat-log").innerText = `Dealt ${damage} damage! ${typeAdv > 1 ? '(Type Advantage!) ' : ''}${isCrit ? '[CRIT!]' : ''}`;
 
   if (gameState.currentEnemy.hp <= 0) {
-    setTimeout(defeatEnemy, 700);
+    setTimeout(defeatEnemy, 800);
     return;
   }
 
+  // Enemy counter-attack
   setTimeout(() => {
     const incoming = Math.max(1, Math.floor(gameState.currentEnemy.atk * (1 - gameState.armorResist)));
     playerBattleHp -= incoming;
-    updateBattleScreen();
-    document.getElementById("combat-log").innerText = `${gameState.currentEnemy.name} attacks for ${incoming} dmg!`;
+    document.getElementById("combat-log").innerText = `${gameState.currentEnemy.name} counter-attacks for ${incoming} dmg!`;
 
     if (playerBattleHp <= 0) {
-      alert("Defeated in battle! Regrouping at Grasslands Village...");
+      alert("Defeated! Returning to Temple entrance...");
       playerBattleHp = getMasterHp();
-      gameState.playerX = 18;
-      gameState.playerY = 18;
+      gameState.playerX = 14;
+      gameState.playerY = 7;
       endBattle();
+    } else {
+      // Turn complete: Unlock buttons for next player action
+      gameState.turnResolving = false;
+      updateBattleScreen();
     }
-  }, 700);
+  }, 750);
 }
 
 function defeatEnemy() {
@@ -301,7 +300,7 @@ function defeatEnemy() {
       gameState.pocket.push(lootedWeapon);
       logText += ` Acquired [${lootedWeapon.name}]!`;
     } else {
-      logText += ` [${lootedWeapon.name}] dropped (Pocket is full at 5/5 weapons).`;
+      logText += ` [${lootedWeapon.name}] dropped (Pocket is full at 5/5).`;
     }
   }
 
@@ -317,13 +316,15 @@ function defeatEnemy() {
 
 function endBattle() {
   gameState.inCombat = false;
+  gameState.turnResolving = false;
   document.getElementById("battle-overlay").classList.add("hidden");
   updateHUD();
   render();
 }
 
-// Spatial Pocket Menu
+// Spatial Pocket Draw
 document.getElementById("btn-open-weapons").onclick = () => {
+  if (gameState.turnResolving) return;
   const menu = document.getElementById("pocket-menu");
   const list = document.getElementById("pocket-list");
   list.innerHTML = "";
@@ -347,7 +348,7 @@ document.getElementById("btn-open-weapons").onclick = () => {
 };
 document.getElementById("btn-close-pocket").onclick = () => document.getElementById("pocket-menu").classList.add("hidden");
 
-// Workshop / Blacksmith
+// Workshop Crucible
 function openWorkshop() {
   const modal = document.getElementById("workshop-modal");
   const inv = document.getElementById("workshop-inventory");
@@ -381,7 +382,7 @@ document.getElementById("btn-reforge-all").onclick = () => {
 };
 document.getElementById("btn-close-workshop").onclick = () => document.getElementById("workshop-modal").classList.add("hidden");
 
-// Movement & Interaction Controller
+// Overworld Movement & Collision
 window.addEventListener("keydown", (e) => {
   if (gameState.inCombat) return;
 
@@ -399,55 +400,55 @@ window.addEventListener("keydown", (e) => {
 
   if (dx === 0 && dy === 0) return;
 
-  const targetX = Math.max(0, Math.min(WORLD_COLS - 1, gameState.playerX + dx));
-  const targetY = Math.max(0, Math.min(WORLD_ROWS - 1, gameState.playerY + dy));
-  const targetZone = getZoneAt(targetX, targetY);
+  const scene = SCENES[gameState.currentScene];
+  const targetX = gameState.playerX + dx;
+  const targetY = gameState.playerY + dy;
 
-  // Ocean Vessel Requirement
-  if (targetZone === "ocean" && !gameState.hasBoat) {
-    alert("The ocean depths require a boat! Obtain one at Azure Beach Port.");
+  // Boundary check
+  if (targetX < 0 || targetX >= scene.cols || targetY < 0 || targetY >= scene.rows) return;
+
+  const targetTile = scene.map[targetY][targetX];
+
+  // Collision: Cannot walk through trees (1) or stone walls (2)
+  if (targetTile === 1 || targetTile === 2) return;
+
+  // Scene Portal Transition (Tile 8)
+  if (targetTile === 8) {
+    if (gameState.currentScene === "forest_dungeon") {
+      gameState.currentScene = "snow_mountains";
+      gameState.playerX = 14;
+      gameState.playerY = 2;
+    } else {
+      gameState.currentScene = "forest_dungeon";
+      gameState.playerX = 14;
+      gameState.playerY = 20;
+    }
+    updateHUD();
+    render();
     return;
   }
 
   gameState.playerX = targetX;
   gameState.playerY = targetY;
-  checkLandmarkUnlocks();
   updateHUD();
   render();
 
-  // Boat Broker interaction at (58, 18)
-  if (gameState.playerX === 58 && gameState.playerY === 18 && !gameState.hasBoat) {
-    if (confirm("Harbor Master: 'Commission an ocean-faring vessel for 0g?'")) {
-      gameState.hasBoat = true;
-      alert("Obtained Ocean Vessel! You can now explore oceanic regions.");
-    }
-  }
-
-  // Blacksmith interaction
-  if (e.key.toLowerCase() === "b" || ((gameState.playerX === 18 && gameState.playerY === 19) || (gameState.playerX === 98 && gameState.playerY === 56))) {
+  // Forge interaction (Tile 6)
+  if (targetTile === 6 || e.key.toLowerCase() === "b") {
     openWorkshop();
   }
 
-  // Boss Arenas
-  const bossMap = {
-    "28,20": BOSS_ENCOUNTERS.boss_grasslands,
-    "68,20": BOSS_ENCOUNTERS.boss_beach,
-    "25,60": BOSS_ENCOUNTERS.boss_hillside,
-    "60,60": BOSS_ENCOUNTERS.boss_forest,
-    "105,20": BOSS_ENCOUNTERS.boss_ocean,
-    "105,60": BOSS_ENCOUNTERS.boss_mountains
-  };
-
-  const coordKey = `${gameState.playerX},${gameState.playerY}`;
-  if (bossMap[coordKey]) {
-    triggerBattle(bossMap[coordKey]);
-  } else if (isDangerPatch(gameState.playerX, gameState.playerY)) {
-    // Battles ONLY happen inside visually marked tall-grass patches
-    if (Math.random() < 0.20) {
-      const pool = REGIONAL_ENEMIES[targetZone] || REGIONAL_ENEMIES.grasslands;
-      const enemy = pool[Math.floor(Math.random() * pool.length)];
-      triggerBattle(enemy);
-    }
+  // Boss Battle (Tile 7)
+  if (targetTile === 7) {
+    const boss = gameState.currentScene === "forest_dungeon"
+      ? BOSS_ENCOUNTERS.boss_forest
+      : BOSS_ENCOUNTERS.boss_mountains;
+    triggerBattle(boss);
+  } else if (targetTile === 3 && Math.random() < 0.22) {
+    // Hunting Ground Encounter
+    const pool = REGIONAL_ENEMIES[gameState.currentScene === "forest_dungeon" ? "forest" : "mountains"];
+    const enemy = pool[Math.floor(Math.random() * pool.length)];
+    triggerBattle(enemy);
   }
 });
 
