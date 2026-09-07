@@ -2,26 +2,41 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Blade & Sigil: Adventurer's Arsenal</title>
+  <title>Adventurer's Arsenal: Open Realm</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="game-wrapper">
     <div id="hud">
       <div id="stats-hud">
-        <span>Master HP: <strong id="hud-hp">--</strong></span>
-        <span>Master ATK: <strong id="hud-atk">--</strong></span>
-        <span>Keen Cores: <strong id="hud-cores">2</strong></span>
+        <span>HP: <strong id="hud-hp">--</strong></span>
+        <span>ATK: <strong id="hud-atk">--</strong></span>
+        <span>Keen Cores: <strong id="hud-cores">0</strong></span>
+        <span>Zone: <strong id="hud-zone">Grasslands</strong></span>
       </div>
-      <div id="controls-hint">Move: [WASD / Arrows] | Blacksmith / Workshop: Walk to Anvil</div>
+      <div id="controls-hint">[WASD] Move | [M] World Map & Fast Travel | [B] Workshop at Anvils</div>
     </div>
+    
     <canvas id="screen" width="640" height="480"></canvas>
     
-    <!-- Turn-Based Battle Overlay -->
+    <!-- Fast Travel World Map Modal (M) -->
+    <div id="map-modal" class="ui-panel hidden">
+      <div class="panel-header">
+        <h2>Continent of Aethelgard (Fast Travel)</h2>
+        <button id="btn-close-map">X</button>
+      </div>
+      <p class="subtitle">Select any visited landmark to fast travel instantly.</p>
+      <div id="landmarks-grid"></div>
+    </div>
+
+    <!-- Battle Overlay -->
     <div id="battle-overlay" class="ui-panel hidden">
       <div class="combatants">
         <div class="stat-card" id="enemy-card">
-          <div class="header"><span id="enemy-name">Wild Adversary</span> <span id="enemy-type" class="badge">Type</span></div>
+          <div class="header">
+            <span id="enemy-name">Wild Adversary</span>
+            <span id="enemy-type" class="badge">Type</span>
+          </div>
           <div class="meter"><div class="meter-fill hp" id="enemy-hp-fill"></div></div>
           <div class="readout" id="enemy-hp-text">0 / 0</div>
         </div>
@@ -41,14 +56,14 @@
       <div id="action-deck">
         <div id="moves-container"></div>
         <div id="tactics-container">
-          <button id="btn-open-weapons">Draw Weapon (Party)</button>
+          <button id="btn-open-weapons">Draw Weapon</button>
           <button id="btn-flee">Retreat</button>
         </div>
       </div>
 
-      <!-- 5-Weapon Spatial Pocket Menu -->
+      <!-- Spatial Pocket Menu -->
       <div id="pocket-menu" class="ui-subpanel hidden">
-        <h3>Spatial Pocket (Equipped Weapons)</h3>
+        <h3>Spatial Pocket (5 Weapons)</h3>
         <div id="pocket-list"></div>
         <button id="btn-close-pocket">Close</button>
       </div>
@@ -56,12 +71,14 @@
 
     <!-- Blacksmith & Enhance Workshop -->
     <div id="workshop-modal" class="ui-panel hidden">
-      <h2>Blacksmith's Crucible</h2>
-      <p>Refill weapon stocks or infuse Keen Cores to boost critical rate (+25% each).</p>
+      <div class="panel-header">
+        <h2>Blacksmith's Crucible</h2>
+        <button id="btn-close-workshop">X</button>
+      </div>
+      <p>Hone weapon durability or infuse Keen Cores (+25% Crit chance, max 4).</p>
       <div id="workshop-inventory"></div>
       <div class="workshop-actions">
         <button id="btn-reforge-all">Replenish All Weapons (Free)</button>
-        <button id="btn-close-workshop">Exit Forge</button>
       </div>
     </div>
   </div>
