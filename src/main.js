@@ -7,8 +7,9 @@ const canvas = document.getElementById("screen");
 const ctx = canvas.getContext("2d");
 
 const TILE_SIZE = 32;
-const WORLD_COLS = 90;
-const WORLD_ROWS = 60;
+// Expanded world scale: 120 x 80 tiles
+const WORLD_COLS = 120;
+const WORLD_ROWS = 80;
 
 class WeaponInstance {
   constructor(proto) {
@@ -24,13 +25,13 @@ class WeaponInstance {
   }
 }
 
-// 5. Initial conditions: 1 starting weapon, 0 Keen Cores
+// Starter loadout: 1 weapon, 0 cores
 const starter = ALL_WEAPONS["Folded Sword #1"] || Object.values(ALL_WEAPONS)[0];
 const gameState = {
-  playerX: 12,
-  playerY: 14,
-  playerBaseHp: 40,
-  playerBaseAtk: 10,
+  playerX: 18,
+  playerY: 18,
+  playerBaseHp: 50,
+  playerBaseAtk: 12,
   armorResist: 0.15,
   keenCores: 0,
   hasBoat: false,
@@ -42,7 +43,6 @@ const gameState = {
   unlockedLandmarks: new Set(["Grasslands Village"])
 };
 
-// Master stats computation
 function getMasterHp() {
   return gameState.pocket.reduce((acc, w) => acc + w.hp, gameState.playerBaseHp);
 }
@@ -52,33 +52,55 @@ function getMasterAtk() {
 
 let playerBattleHp = getMasterHp();
 
-// Landmarks configuration
 const LANDMARKS = [
-  { id: "Grasslands Village", x: 12, y: 14, region: "grasslands", desc: "Starting village & Master Forge" },
-  { id: "Azure Beach Port", x: 38, y: 14, region: "beach", desc: "Harbor & Boat Vendor" },
-  { id: "Ascetic Dojo", x: 12, y: 38, region: "hillside", desc: "High mountain trial" },
-  { id: "Sunken Temple", x: 38, y: 38, region: "forest", desc: "Ancient sanctum" },
-  { id: "Alpine Laboratory", x: 68, y: 38, region: "mountains", desc: "Cryo research facility" },
-  { id: "Abyssal Prison", x: 68, y: 14, region: "ocean", desc: "Isolated oceanic prison" }
+  { id: "Grasslands Village", x: 18, y: 18, region: "grasslands", desc: "Settlement & Master Crucible" },
+  { id: "Azure Beach Port", x: 55, y: 18, region: "beach", desc: "Harbor & Vessel Broker" },
+  { id: "Ascetic Dojo", x: 18, y: 55, region: "hillside", desc: "Monastic combat grounds" },
+  { id: "Sunken Temple", x: 55, y: 55, region: "forest", desc: "Overgrown ancient ruins" },
+  { id: "Alpine Laboratory", x: 98, y: 55, region: "mountains", desc: "Frost-bound research facility" },
+  { id: "Abyssal Prison", x: 98, y: 18, region: "ocean", desc: "High-security island fortress" }
 ];
 
-// Region boundary locator based on the layout
+// Region boundary locator across 120 x 80 map
 function getZoneAt(x, y) {
-  if (x < 30 && y < 25) return "grasslands";
-  if (x >= 30 && x < 55 && y < 25) return "beach";
-  if (x < 30 && y >= 25) return "hillside";
-  if (x >= 30 && x < 55 && y >= 25) return "forest";
-  if (x >= 55 && y >= 25) return "mountains";
+  if (x < 40 && y < 40) return "grasslands";
+  if (x >= 40 && x < 80 && y < 40) return "beach";
+  if (x < 40 && y >= 40) return "hillside";
+  if (x >= 40 && x < 80 && y >= 40) return "forest";
+  if (x >= 80 && y >= 40) return "mountains";
   return "ocean";
 }
 
-// Check landmark unlock on player step
+// Deterministic Hunting Grounds: Specific tall-grass patches per region
+// Walking ANYWHERE outside these zones is completely safe.
+function isDangerPatch(x, y) {
+  // Do not spawn danger patches on top of landmarks or paths
+  for (const lm of LANDMARKS) {
+    if (Math.abs(x - lm.x) <= 4 && Math.abs(y - lm.y) <= 4) return false;
+  }
+
+  // Grasslands Hunting Fields (East of village)
+  if (x >= 24 && x <= 35 && y >= 10 && y <= 28) return true;
+  // Beach Coastal Reefs
+  if (x >= 62 && x <= 75 && y >= 10 && y <= 25) return true;
+  // Hillside Crags
+  if (x >= 10 && x <= 32 && y >= 46 && y <= 68) return true;
+  // Deep Forest Thick Woods
+  if (x >= 46 && x <= 72 && y >= 44 && y <= 70) return true;
+  // Mountain Permafrost Wilds
+  if (x >= 86 && x <= 112 && y >= 44 && y <= 72) return true;
+  // Open Ocean Whirlpools
+  if (x >= 86 && x <= 112 && y >= 8 && y <= 32) return true;
+
+  return false;
+}
+
 function checkLandmarkUnlocks() {
   LANDMARKS.forEach(lm => {
     if (Math.abs(gameState.playerX - lm.x) <= 2 && Math.abs(gameState.playerY - lm.y) <= 2) {
       if (!gameState.unlockedLandmarks.has(lm.id)) {
         gameState.unlockedLandmarks.add(lm.id);
-        alert(`New Fast Travel Landmark Discovered: ${lm.id}!`);
+        alert(`Discovered Landmark: ${lm.id}! Unlocked for Fast Travel.`);
       }
     }
   });
@@ -91,56 +113,72 @@ function updateHUD() {
   document.getElementById("hud-zone").innerText = getZoneAt(gameState.playerX, gameState.playerY).toUpperCase();
 }
 
-// Camera tracking
+// Render loop with clamped camera tracking (prevents black empty voids)
 function render() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  
-  const camX = gameState.playerX * TILE_SIZE - canvas.width / 2;
-  const camY = gameState.playerY * TILE_SIZE - canvas.height / 2;
+
+  const halfW = canvas.width / 2;
+  const halfH = canvas.height / 2;
+  const maxCamX = WORLD_COLS * TILE_SIZE - canvas.width;
+  const maxCamY = WORLD_ROWS * TILE_SIZE - canvas.height;
+
+  // Clamped Camera
+  const camX = Math.max(0, Math.min(maxCamX, gameState.playerX * TILE_SIZE + TILE_SIZE / 2 - halfW));
+  const camY = Math.max(0, Math.min(maxCamY, gameState.playerY * TILE_SIZE + TILE_SIZE / 2 - halfH));
 
   const startCol = Math.max(0, Math.floor(camX / TILE_SIZE));
   const endCol = Math.min(WORLD_COLS, startCol + Math.ceil(canvas.width / TILE_SIZE) + 1);
   const startRow = Math.max(0, Math.floor(camY / TILE_SIZE));
   const endRow = Math.min(WORLD_ROWS, startRow + Math.ceil(canvas.height / TILE_SIZE) + 1);
 
+  // 1. Draw Map Tiles
   for (let r = startRow; r < endRow; r++) {
     for (let c = startCol; c < endCol; c++) {
       const zone = getZoneAt(c, r);
+      const isDanger = isDangerPatch(c, r);
       const scrX = c * TILE_SIZE - camX;
       const scrY = r * TILE_SIZE - camY;
-      EnvironmentRenderer.drawEnvironmentTile(ctx, zone, scrX, scrY, TILE_SIZE);
+      EnvironmentRenderer.drawEnvironmentTile(ctx, zone, isDanger, scrX, scrY, TILE_SIZE);
     }
   }
 
-  // Draw Landmarks & interactables
+  // 2. Draw Landmark Plazas
   LANDMARKS.forEach(lm => {
     const scrX = lm.x * TILE_SIZE - camX;
     const scrY = lm.y * TILE_SIZE - camY;
-    EnvironmentRenderer.drawEnvironmentTile(ctx, "town", scrX, scrY, TILE_SIZE);
+    if (scrX > -TILE_SIZE && scrX < canvas.width && scrY > -TILE_SIZE && scrY < canvas.height) {
+      EnvironmentRenderer.drawEnvironmentTile(ctx, "town", false, scrX, scrY, TILE_SIZE);
+    }
   });
 
-  // Blacksmiths at Grasslands and Alpine Lab
-  [[12, 15], [68, 39]].forEach(([bx, by]) => {
+  // 3. Draw World Interactables (Anvils & Merchants)
+  [[18, 19], [98, 56]].forEach(([bx, by]) => {
     EnvironmentRenderer.drawObject(ctx, "anvil", bx * TILE_SIZE - camX, by * TILE_SIZE - camY, TILE_SIZE);
   });
+  EnvironmentRenderer.drawObject(ctx, "boat_merchant", 58 * TILE_SIZE - camX, 18 * TILE_SIZE - camY, TILE_SIZE);
 
-  // Boat merchant at Beach
-  EnvironmentRenderer.drawObject(ctx, "boat_merchant", 40 * TILE_SIZE - camX, 14 * TILE_SIZE - camY, TILE_SIZE);
-
-  // Regional Bosses
-  const bossPos = [[18, 18], [45, 18], [18, 48], [45, 48], [75, 48], [75, 18]];
-  bossPos.forEach(([bx, by]) => {
+  // 4. Draw Boss Arenas
+  const bossLocations = [[28, 20], [68, 20], [25, 60], [60, 60], [105, 60], [105, 20]];
+  bossLocations.forEach(([bx, by]) => {
     EnvironmentRenderer.drawObject(ctx, "boss", bx * TILE_SIZE - camX, by * TILE_SIZE - camY, TILE_SIZE);
   });
 
-  // Player character
-  ctx.fillStyle = "#eceff4";
-  ctx.fillRect(canvas.width / 2 - 8, canvas.height / 2 - 8, 16, 16);
-  ctx.fillStyle = "#5e81ac";
-  ctx.fillRect(canvas.width / 2 - 6, canvas.height / 2 - 6, 12, 12);
+  // 5. Draw Player Character
+  const playerScrX = gameState.playerX * TILE_SIZE - camX;
+  const playerScrY = gameState.playerY * TILE_SIZE - camY;
+
+  ctx.fillStyle = "#2e3440"; // Shadow
+  ctx.beginPath();
+  ctx.arc(playerScrX + 16, playerScrY + 28, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#d08770"; // Head
+  ctx.fillRect(playerScrX + 11, playerScrY + 4, 10, 8);
+  ctx.fillStyle = "#5e81ac"; // Cloak
+  ctx.fillRect(playerScrX + 8, playerScrY + 12, 16, 14);
 }
 
-// Fast Travel UI (M key)
+// Fast Travel UI (M)
 function openWorldMap() {
   const modal = document.getElementById("map-modal");
   const container = document.getElementById("landmarks-grid");
@@ -151,7 +189,7 @@ function openWorldMap() {
     const isUnlocked = gameState.unlockedLandmarks.has(lm.id);
     const card = document.createElement("div");
     card.className = `landmark-card ${isUnlocked ? 'unlocked' : 'locked'}`;
-    card.innerHTML = `<strong>${lm.id}</strong> [${lm.region}]<br><small>${isUnlocked ? lm.desc : "Undiscovered Territory"}</small>`;
+    card.innerHTML = `<strong>${lm.id}</strong> [${lm.region.toUpperCase()}]<br><small>${isUnlocked ? lm.desc : "Undiscovered Location"}</small>`;
 
     if (isUnlocked) {
       card.onclick = () => {
@@ -167,7 +205,7 @@ function openWorldMap() {
 }
 document.getElementById("btn-close-map").onclick = () => document.getElementById("map-modal").classList.add("hidden");
 
-// Turn-Based Combat Logic
+// Battle Trigger & Turn Loop
 function triggerBattle(enemyProfile) {
   gameState.inCombat = true;
   gameState.atkBuff = 1.0;
@@ -182,7 +220,7 @@ function updateBattleScreen() {
   const activeWp = gameState.pocket[gameState.activeIdx];
   const wpLabel = document.getElementById("active-weapon-name");
   wpLabel.innerText = `${activeWp.name} (${activeWp.type})`;
-  wpLabel.className = activeWp.rarity; // Rarity color indicator
+  wpLabel.className = activeWp.rarity;
 
   document.getElementById("active-weapon-mv").innerText = `MV: ${Math.round(activeWp.mv * 100)}% | Crit: ${Math.round(activeWp.critChance * 100)}%`;
   document.getElementById("player-hp-fill").style.width = `${(playerBattleHp / getMasterHp()) * 100}%`;
@@ -209,7 +247,6 @@ function executeTurn(move) {
   move.currentStock--;
   if (move.buff > 1.0) gameState.atkBuff = move.buff;
 
-  // Type triangle
   let typeAdv = 1.0;
   if ((wp.type === "Sword" && gameState.currentEnemy.type === "Gauntlet") ||
       (wp.type === "Gauntlet" && gameState.currentEnemy.type === "Lance") ||
@@ -219,7 +256,6 @@ function executeTurn(move) {
     typeAdv = 2.0;
   }
 
-  // Resistances
   let resist = 0;
   if (["Sword", "Lance", "Gauntlet"].includes(wp.type)) resist = gameState.currentEnemy.physRes;
   else if (wp.type === "Talisman") resist = gameState.currentEnemy.spiRes;
@@ -235,50 +271,48 @@ function executeTurn(move) {
   document.getElementById("combat-log").innerText = `Dealt ${damage} damage! ${typeAdv > 1 ? '(Type Advantage!) ' : ''}${isCrit ? '[CRIT!]' : ''}`;
 
   if (gameState.currentEnemy.hp <= 0) {
-    setTimeout(defeatEnemy, 800);
+    setTimeout(defeatEnemy, 700);
     return;
   }
 
-  // Enemy counter
   setTimeout(() => {
     const incoming = Math.max(1, Math.floor(gameState.currentEnemy.atk * (1 - gameState.armorResist)));
     playerBattleHp -= incoming;
     updateBattleScreen();
-    document.getElementById("combat-log").innerText = `${gameState.currentEnemy.name} counter-attacks for ${incoming} dmg!`;
+    document.getElementById("combat-log").innerText = `${gameState.currentEnemy.name} attacks for ${incoming} dmg!`;
 
     if (playerBattleHp <= 0) {
-      alert("Defeated! Reviving in Grasslands Village...");
+      alert("Defeated in battle! Regrouping at Grasslands Village...");
       playerBattleHp = getMasterHp();
-      gameState.playerX = 12;
-      gameState.playerY = 14;
+      gameState.playerX = 18;
+      gameState.playerY = 18;
       endBattle();
     }
   }, 700);
 }
 
-// 3. Acquire enemy's weapon + drop Keen Cores if boss
 function defeatEnemy() {
   const lootWpName = gameState.currentEnemy.weaponName;
-  let logText = `Victory! Defeated ${gameState.currentEnemy.name}!`;
+  let logText = `Defeated ${gameState.currentEnemy.name}!`;
 
   if (ALL_WEAPONS[lootWpName]) {
     const lootedWeapon = new WeaponInstance(ALL_WEAPONS[lootWpName]);
     if (gameState.pocket.length < 5) {
       gameState.pocket.push(lootedWeapon);
-      logText += ` Claimed [${lootedWeapon.name}] into spatial pocket!`;
+      logText += ` Acquired [${lootedWeapon.name}]!`;
     } else {
-      logText += ` [${lootedWeapon.name}] discovered! (Pocket full - visit forge to manage).`;
+      logText += ` [${lootedWeapon.name}] dropped (Pocket is full at 5/5 weapons).`;
     }
   }
 
   if (gameState.currentEnemy.cores) {
     gameState.keenCores += gameState.currentEnemy.cores;
-    logText += ` Acquired ${gameState.currentEnemy.cores} Keen Core(s)!`;
+    logText += ` +${gameState.currentEnemy.cores} Keen Core(s)!`;
   }
 
   document.getElementById("combat-log").innerText = logText;
   updateHUD();
-  setTimeout(endBattle, 1400);
+  setTimeout(endBattle, 1300);
 }
 
 function endBattle() {
@@ -288,7 +322,7 @@ function endBattle() {
   render();
 }
 
-// Draw weapon in combat
+// Spatial Pocket Menu
 document.getElementById("btn-open-weapons").onclick = () => {
   const menu = document.getElementById("pocket-menu");
   const list = document.getElementById("pocket-list");
@@ -298,7 +332,7 @@ document.getElementById("btn-open-weapons").onclick = () => {
   gameState.pocket.forEach((w, idx) => {
     const row = document.createElement("div");
     row.className = "item-row";
-    row.innerHTML = `<span class="${w.rarity}"><strong>${w.name}</strong> (${w.type}) | MV: ${Math.round(w.mv*100)}%</span>`;
+    row.innerHTML = `<span class="${w.rarity}"><strong>${w.name}</strong> (${w.type}) | MV: ${Math.round(w.mv * 100)}%</span>`;
     const btn = document.createElement("button");
     btn.innerText = idx === gameState.activeIdx ? "Equipped" : "Draw";
     btn.disabled = idx === gameState.activeIdx;
@@ -313,7 +347,7 @@ document.getElementById("btn-open-weapons").onclick = () => {
 };
 document.getElementById("btn-close-pocket").onclick = () => document.getElementById("pocket-menu").classList.add("hidden");
 
-// Workshop / Forge
+// Workshop / Blacksmith
 function openWorkshop() {
   const modal = document.getElementById("workshop-modal");
   const inv = document.getElementById("workshop-inventory");
@@ -343,11 +377,11 @@ document.getElementById("btn-reforge-all").onclick = () => {
   gameState.pocket.forEach(w => w.moves.forEach(m => m.currentStock = m.maxStock));
   playerBattleHp = getMasterHp();
   updateHUD();
-  alert("All weapon moves refreshed and master HP restored!");
+  alert("All weapon moves honed and master HP restored!");
 };
 document.getElementById("btn-close-workshop").onclick = () => document.getElementById("workshop-modal").classList.add("hidden");
 
-// Controls & Movement
+// Movement & Interaction Controller
 window.addEventListener("keydown", (e) => {
   if (gameState.inCombat) return;
 
@@ -363,13 +397,15 @@ window.addEventListener("keydown", (e) => {
   if (e.key === "a" || e.key === "ArrowLeft") dx = -1;
   if (e.key === "d" || e.key === "ArrowRight") dx = 1;
 
+  if (dx === 0 && dy === 0) return;
+
   const targetX = Math.max(0, Math.min(WORLD_COLS - 1, gameState.playerX + dx));
   const targetY = Math.max(0, Math.min(WORLD_ROWS - 1, gameState.playerY + dy));
   const targetZone = getZoneAt(targetX, targetY);
 
-  // Ocean barrier check: needs boat
+  // Ocean Vessel Requirement
   if (targetZone === "ocean" && !gameState.hasBoat) {
-    alert("The ocean depths require a seaworthy vessel! Purchase one from the Beach merchant.");
+    alert("The ocean depths require a boat! Obtain one at Azure Beach Port.");
     return;
   }
 
@@ -379,41 +415,42 @@ window.addEventListener("keydown", (e) => {
   updateHUD();
   render();
 
-  // Check Boat Merchant interaction at (40, 14)
-  if (gameState.playerX === 40 && gameState.playerY === 14 && !gameState.hasBoat) {
-    if (confirm("Boat Merchant: 'Would you like to commission an ocean vessel for exploration?'")) {
+  // Boat Broker interaction at (58, 18)
+  if (gameState.playerX === 58 && gameState.playerY === 18 && !gameState.hasBoat) {
+    if (confirm("Harbor Master: 'Commission an ocean-faring vessel for 0g?'")) {
       gameState.hasBoat = true;
-      alert("Acquired the Ocean Vessel! You can now freely sail across the ocean.");
+      alert("Obtained Ocean Vessel! You can now explore oceanic regions.");
     }
   }
 
-  // Blacksmith trigger
-  if (e.key.toLowerCase() === "b" || ((gameState.playerX === 12 && gameState.playerY === 15) || (gameState.playerX === 68 && gameState.playerY === 39))) {
+  // Blacksmith interaction
+  if (e.key.toLowerCase() === "b" || ((gameState.playerX === 18 && gameState.playerY === 19) || (gameState.playerX === 98 && gameState.playerY === 56))) {
     openWorkshop();
   }
 
-  // Encounter check
+  // Boss Arenas
   const bossMap = {
-    "18,18": BOSS_ENCOUNTERS.boss_grasslands,
-    "45,18": BOSS_ENCOUNTERS.boss_beach,
-    "18,48": BOSS_ENCOUNTERS.boss_hillside,
-    "45,48": BOSS_ENCOUNTERS.boss_forest,
-    "75,18": BOSS_ENCOUNTERS.boss_ocean,
-    "75,48": BOSS_ENCOUNTERS.boss_mountains
+    "28,20": BOSS_ENCOUNTERS.boss_grasslands,
+    "68,20": BOSS_ENCOUNTERS.boss_beach,
+    "25,60": BOSS_ENCOUNTERS.boss_hillside,
+    "60,60": BOSS_ENCOUNTERS.boss_forest,
+    "105,20": BOSS_ENCOUNTERS.boss_ocean,
+    "105,60": BOSS_ENCOUNTERS.boss_mountains
   };
 
-  const key = `${gameState.playerX},${gameState.playerY}`;
-  if (bossMap[key]) {
-    triggerBattle(bossMap[key]);
-  } else if (Math.random() < 0.12) {
-    const list = REGIONAL_ENEMIES[targetZone];
-    if (list && list.length > 0) {
-      const enemy = list[Math.floor(Math.random() * list.length)];
+  const coordKey = `${gameState.playerX},${gameState.playerY}`;
+  if (bossMap[coordKey]) {
+    triggerBattle(bossMap[coordKey]);
+  } else if (isDangerPatch(gameState.playerX, gameState.playerY)) {
+    // Battles ONLY happen inside visually marked tall-grass patches
+    if (Math.random() < 0.20) {
+      const pool = REGIONAL_ENEMIES[targetZone] || REGIONAL_ENEMIES.grasslands;
+      const enemy = pool[Math.floor(Math.random() * pool.length)];
       triggerBattle(enemy);
     }
   }
 });
 
-// Initial boot
+// Boot
 updateHUD();
 render();
