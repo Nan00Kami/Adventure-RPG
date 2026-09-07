@@ -1,0 +1,49 @@
+// generate_weapons.js - Run in Node or inside browser console to export 250 items
+const classes = ["Sword", "Lance", "Gauntlet", "Talisman", "Staff"];
+const rarities = [
+  { name: "Common", count: 80, minLvl: 1, maxLvl: 15, hpBase: 15, atkBase: 6, mvBase: 1.1 },
+  { name: "Rare", count: 80, minLvl: 16, maxLvl: 30, hpBase: 45, atkBase: 18, mvBase: 1.35 },
+  { name: "Epic", count: 50, minLvl: 31, maxLvl: 45, hpBase: 90, atkBase: 35, mvBase: 1.6 },
+  { name: "Legendary", count: 40, minLvl: 46, maxLvl: 50, hpBase: 160, atkBase: 65, mvBase: 1.9 }
+];
+
+const namePrefixes = {
+  Sword: ["Rusty", "Tempered", "Folded", "Runed", "Vindicator's", "Astral", "Bloodforged", "Void-Etched", "Dragon-Tooth", "Celestine"],
+  Lance: ["Wooden", "Iron-Tipped", "Gilded", "Halberd-Pattern", "Valkyrie", "Drill-Pike", "Sky-Piercer", "Sun-Spire", "Wyrm-Spur", "God-Pin"],
+  Gauntlet: ["Padded", "Spiked", "Brass", "Crag-Iron", "Iron-Tiger", "Thunder-Knuckle", "Asura", "Colossus", "Cataclysm", "Titan"],
+  Talisman: ["Parchment", "Jade-Carved", "Yin-Yang", "Five-Phase", "Spirit-Braid", "Soul-Anchor", "Zenith", "Karma-Loop", "Infinite-Mind", "Nirvana"],
+  Staff: ["Oak", "Polished", "Crystal-Orb", " Ley-Channeled", "Eclipse", "Archmage", "Aether-Conduit", "Chronos", "Supernova", "Genesis"]
+};
+
+export function generateAllWeapons() {
+  const catalog = [];
+  let id = 1;
+
+  rarities.forEach(rarity => {
+    for (let i = 0; i < rarity.count; i++) {
+      const cls = classes[i % classes.length];
+      const prefix = namePrefixes[cls][i % namePrefixes[cls].length];
+      const name = `${prefix} ${cls} #${Math.floor(i / classes.length) + 1}`;
+      
+      // Stat variations
+      const hp = Math.floor(rarity.hpBase * (0.85 + Math.random() * 0.3));
+      const atk = Math.floor(rarity.atkBase * (0.85 + Math.random() * 0.3));
+      const mv = parseFloat((rarity.mvBase + (Math.random() * 0.15)).toFixed(2));
+
+      catalog.push({
+        id: id++,
+        name: name,
+        class: cls,
+        rarity: rarity.name,
+        level: rarity.minLvl,
+        hp: hp,
+        atk: atk,
+        mv: mv,
+        critChance: 0, // Enhanced up to 1.0 (100%) with 4 Keen Cores
+        keenCoresUsed: 0,
+        moves: [] // Populated from move pools
+      });
+    }
+  });
+  return catalog;
+}
